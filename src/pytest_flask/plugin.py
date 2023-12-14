@@ -13,6 +13,7 @@ from typing import TypeVar
 from typing import Union
 
 import pytest
+import flask
 from _pytest.config import Config as _PytestConfig
 
 from .fixtures import accept_any
@@ -103,15 +104,29 @@ def _monkeypatch_response_class(request, monkeypatch):
     )
 
 
-@pytest.fixture(autouse=True)
-def _push_request_context(request):
-    """During tests execution request context has been pushed, e.g. `url_for`,
-    `session`, etc. can be used in tests as is::
+@pytest.fixture
+def url_for(request):
+    if "app" not in request.fixturenames:
+        return
 
-        def test_app(app, client):
-            assert client.get(url_for('myview')).status_code == 200
+    app = getfixturevalue(request, "app")
 
-    """
+    # Get application bound to the live server if ``live_server`` fixture
+    # is applied. Live server application has an explicit ``SERVER_NAME``,
+    # so ``url_for`` function generates a complete URL for endpoint which
+    # includes application port as well.
+    if "live_server" in request.fixturenames:
+        app = getfixturevalue(request, "live_server").app
+
+    def url_for(*args, **kwargs):
+        with app.test_request_context():
+            return flask.url_for(*args, **kwargs)
+
+    return url_for
+
+
+@pytest.fixture
+def g(request):
     if "app" not in request.fixturenames:
         return
 
@@ -130,7 +145,26 @@ def _push_request_context(request):
     def teardown():
         ctx.pop()
 
-    request.addfinalizer(teardown)
+#    request.addfinalizer(teardown)
+    return flask.g
+
+
+@pytest.fixture
+def session(request):
+    if "app" not in request.fixturenames:
+        return
+
+    app = getfixturevalue(request, "app")
+
+    # Get application bound to the live server if ``live_server`` fixture
+    # is applied. Live server application has an explicit ``SERVER_NAME``,
+    # so ``url_for`` function generates a complete URL for endpoint which
+    # includes application port as well.
+    if "live_server" in request.fixturenames:
+        app = getfixturevalue(request, "live_server").app
+
+    with app.test_request_context():
+        yield flask.session
 
 
 @pytest.fixture(autouse=True)
